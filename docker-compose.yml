@@ -1,8 +1,9 @@
 services:
   caddy-proxy:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
+    image: phillarmonic/domainpilot:2
+#    build:
+#      context: .
+#      dockerfile: docker/Dockerfile
     environment:
       - DEBUG=0
     volumes:
