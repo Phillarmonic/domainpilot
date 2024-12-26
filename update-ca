@@ -1,0 +1,19 @@
+#!/bin/bash
+# Container name or ID of your Caddy container
+CADDY_CONTAINER_NAME="caddy-proxy"
+
+# Adjust this path according to where Caddy stores self-signed certificates
+CADDY_CERT_PATH="/data/caddy/pki/authorities/local/root.crt"
+
+# Path on the host where the certificate will be copied
+# Name it according to your preference
+HOST_CERT_PATH="/usr/local/share/ca-certificates/caddy-selfsigned.crt"
+
+# Copy the certificate from the Caddy container to the host
+sudo docker compose cp "$CADDY_CONTAINER_NAME:$CADDY_CERT_PATH" "$HOST_CERT_PATH"
+mkdir -p "$HOME/.local/share/ca-certificates"
+docker compose cp "$CADDY_CONTAINER_NAME:$CADDY_CERT_PATH" "$HOME/.local/share/ca-certificates/caddy-selfsigned.crt"
+# Update CA certificates on the host
+sudo update-ca-certificates
+
+echo "Self-signed certificate copied and CA certificates updated."

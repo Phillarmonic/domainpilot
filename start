@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Specify the Docker network name
+DOCKER_NETWORK_NAME="domainpilot-proxy"
+
+# Check if the Docker network already exists
+if ! docker network ls | grep -q "$DOCKER_NETWORK_NAME"; then
+    echo "Docker network '$DOCKER_NETWORK_NAME' does not exist. Creating it..."
+    # Create the Docker network
+    docker network create "$DOCKER_NETWORK_NAME"
+    echo "Docker network '$DOCKER_NETWORK_NAME' created."
+else
+    echo "Docker network '$DOCKER_NETWORK_NAME' already exists. Skipping..."
+fi
+
+if [ ! -e ".env" ]; then
+    cp ".env.example" ".env"
+    echo "Example env file copied to .env"
+fi
+
+if [ "$1" == "-d" ]; then
+    docker compose up "$1"
+else
+    docker compose up
+fi

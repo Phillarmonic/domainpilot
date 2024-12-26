@@ -1,0 +1,22 @@
+services:
+  caddy-proxy:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      - DEBUG=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./caddy_data:/data
+      - ./caddy_config:/config
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+
+    networks:
+        - domainpilot-proxy
+    restart: unless-stopped
+
+networks:
+  domainpilot-proxy:
+        external: true

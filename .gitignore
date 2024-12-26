@@ -1,0 +1,6 @@
+.idea
+caddy_data/*
+caddy_config/*
+!caddy_config/.gitkeep
+!caddy_data/.gitkeep
+.env
