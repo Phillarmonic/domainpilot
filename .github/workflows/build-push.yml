@@ -8,7 +8,7 @@ on:
         default: "2"
         required: true
 jobs:
-  build_php_fpm:
+  build_domainpilot:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' }}
 
