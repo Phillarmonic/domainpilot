@@ -63,6 +63,28 @@ DomainPilot is a Caddy-based local HTTPS reverse proxy, inspired by the jwilder/
 
 You need to add the SSL certificate of caddy to your browser to be able to access the local website without the warnings about certificate issues.
 
+Firefox:
+Open Firefox's settings. 
+On the search bar, type certificates.
+Click View Certificates.
+![image](https://github.com/user-attachments/assets/f3a94653-b6e2-4eba-9af5-d298d7f3268f)
+
+Now click on the Authorities tab, and click on Import
+![image](https://github.com/user-attachments/assets/b1baabdc-6b67-4901-a1c9-792f12adc4ff)
+
+Find the file in caddy data mentioned in the picture below and open it:
+![image](https://github.com/user-attachments/assets/8b6ce6d8-24e9-449b-8d32-3842214c656d)
+
+Trust it to identify websites and click ok:
+![image](https://github.com/user-attachments/assets/37abda1e-54d3-48ec-b2fd-e5e481ce2b7e)
+
+You should no longer see SSL related errors on your local domais.
+
+Chrome:
+Google chrome settings for installing certificate authority vary from operating system to operating system. Please google how to import a certificate authority for your OS.
+
+
+
 ## Project Structure
 
 **docker-compose.yml**: Main compose file for DomainPilot
