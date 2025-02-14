@@ -52,7 +52,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            CADDY_VERSION=${{ github.event.inputs.caddy_version }}
+            CADDY_VERSION=${{ github.event.inputs.caddy_version || 2 }}
           tags: |
             phillarmonic/domainpilot:latest
             phillarmonic/domainpilot:${{ steps.version.outputs.major_version }}
