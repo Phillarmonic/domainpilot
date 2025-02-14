@@ -5,6 +5,7 @@ cl_info="\u001b[93m"
 cl_reset="\u001b[0m"
 cl_gray="\u001b[90m"
 cl_success="\u001b[92m"
+cl_cyan="\e[36m"
 
 # Information is power.
 cPrint() {
