@@ -4,3 +4,4 @@ caddy_config/*
 !caddy_config/.gitkeep
 !caddy_data/.gitkeep
 .env
+docker-compose.override.yml
