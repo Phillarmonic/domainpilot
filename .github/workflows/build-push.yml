@@ -30,6 +30,8 @@ jobs:
         run: |
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
+            # Remove 'v' prefix if it exists
+            VERSION=${VERSION#v}
             MAJOR_VERSION=$(echo $VERSION | cut -d. -f1)
           else
             VERSION=${{ github.event.inputs.caddy_version }}
