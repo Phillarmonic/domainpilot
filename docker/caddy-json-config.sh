@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 source /opt/includes.sh
 
 cPrint info "Starting up the container..."
@@ -71,7 +71,6 @@ update_caddy_json_config() {
         local new_config=$(jq 'del(.apps.http.servers.srv0.routes[] | select(.match[].host[] == "'$domain'")) | del(.apps.tls.automation.policies[] | select(.subjects[] == "'$domain'"))' <<< "$current_config")
     fi
 
-
     # Write the updated configuration
     echo "$new_config" > $CADDY_CONFIG_JSON
 
@@ -80,23 +79,41 @@ update_caddy_json_config() {
         echo $new_config
     fi
 
-
     # Reload Caddy to apply changes
     cPrint info "Reloading Caddy"
     caddy reload --config $CADDY_CONFIG_JSON
 }
 
-caddy start --config $CADDY_CONFIG_JSON
+# Function to scan for existing containers
+scan_existing_containers() {
+    cPrint info "Scanning for existing containers..."
 
+    # Get all running containers that are connected to the domainpilot-proxy network
+    local containers=$(docker network inspect domainpilot-proxy -f '{{range .Containers}}{{.Name}} {{end}}')
+
+    for container in $containers; do
+        # Skip the DomainPilot container itself
+        if [[ $container != *"caddy-proxy"* ]]; then
+            cPrint info "Found existing container: $container"
+            update_caddy_json_config "$container" "start"
+        fi
+    done
+}
+
+# Start Caddy with the initial configuration
+caddy start --config $CADDY_CONFIG_JSON
 
 figlet "DomainPilot"
 echo -e "${cl_success}Your Trusted Copilot for Secure Web Traffic${cl_reset}"
-echo -e "${cl_info}By Phillarmonic Software <https://github.com/phillarmonic>${cl_reset}"
+echo -e "${cl_cyan}By Phillarmonic Software <https://github.com/phillarmonic>${cl_reset}"
 cPrint info "Make sure to add the env var ${cl_info}'DOMAINPILOT_VHOST'${cl_reset} to your containers with the domain name you want to use."
 cPrint info "Make sure to add the network ${cl_info}'domainpilot-proxy'${cl_reset} (as external) for the containers you want to use with DomainPilot."
+
+# Scan for existing containers before starting the event listener
+scan_existing_containers
+
 cPrint status "Listening to Docker container events..."
 # Listen for Docker start and die events
-
 docker events --filter 'event=start' --filter 'event=die' --format '{{json .}}' | while read event; do
     container_name=$(echo $event | jq -r '.Actor.Attributes.name')
     event_status=$(echo $event | jq -r '.status')
