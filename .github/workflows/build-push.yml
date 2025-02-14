@@ -1,16 +1,19 @@
 name: "Build and push Docker Image"
 
 on:
+  push:
+    tags:
+      - '*'
   workflow_dispatch:
     inputs:
       caddy_version:
         description: "Choose a Caddy Version"
         default: "2"
         required: true
+
 jobs:
   build_domainpilot:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Checkout code
@@ -21,6 +24,19 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Extract version information
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            MAJOR_VERSION=$(echo $VERSION | cut -d. -f1)
+          else
+            VERSION=${{ github.event.inputs.caddy_version }}
+            MAJOR_VERSION=${{ github.event.inputs.caddy_version }}
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "major_version=${MAJOR_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -36,6 +52,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            CADDDY_VERSION=${{ github.event.inputs.caddy_version }}
+            CADDY_VERSION=${{ github.event.inputs.caddy_version }}
           tags: |
-            phillarmonic/domainpilot:${{ github.event.inputs.caddy_version }}
+            phillarmonic/domainpilot:latest
+            phillarmonic/domainpilot:${{ steps.version.outputs.major_version }}
+            phillarmonic/domainpilot:${{ steps.version.outputs.version }}
