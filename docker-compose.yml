@@ -4,6 +4,8 @@ services:
 #    build:
 #      context: .
 #      dockerfile: docker/Dockerfile
+    cap_add:
+      - NET_ADMIN
     environment:
       - DEBUG=0
     volumes:
