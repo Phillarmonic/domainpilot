@@ -8,8 +8,8 @@ LABEL org.opencontainers.image.description='A Caddy reverse proxy server for mul
 LABEL org.opencontainers.image.vendor='Phillarmonic Software <www.phillarmonic.com>'
 LABEL org.opencontainers.image.authors='Monkey Jobs Phillarmonkey <phillarmonicsoftware@outlook.com>'
 
-# Install Docker CLI, jq, and figlet
-RUN apk add --no-cache docker-cli jq figlet bash nss nss-tools nano
+# Install Docker CLI, and utilities used by Caddy
+RUN apk add --no-cache docker-cli jq figlet bash nss nss-tools nano curl wget
 
 # Add your custom script to the container
 ADD docker/caddy-json-config.sh /usr/local/bin/domainpilot
