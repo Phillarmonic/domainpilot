@@ -115,7 +115,7 @@ scan_existing_containers() {
 caddy start --config $CADDY_CONFIG_JSON
 
 figlet "DomainPilot"
-echo -e "${cl_success}Your Trusted Copilot for Secure Web Traffic${cl_reset}"
+echo -e "${cl_success}Your Trusted Copilot for Secure Web Traffic 🌎${cl_reset}"
 echo -e "${cl_cyan}By Phillarmonic Software <https://github.com/phillarmonic>${cl_reset}"
 cPrint info "Make sure to add the env var ${cl_info}'DOMAINPILOT_VHOST'${cl_reset} to your containers with the domain name you want to use."
 cPrint info "You can set ${cl_info}'DOMAINPILOT_CONTAINER_PORT'${cl_reset} to specify a non-default port (default is 80)."
