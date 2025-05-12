@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       caddy_version:
-        description: "Choose a Caddy Version"
+        description: "Choose a Caddy Version (defaults to the major version v2)"
         default: "2"
         required: true
 
