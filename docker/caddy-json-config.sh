@@ -49,7 +49,7 @@ update_caddy_json_config() {
     local container_name=$1
     local action=$2
 
-    # Extract domain name using 'CADDY_VIRTUAL_HOST' environment variable
+    # Extract domain name using 'DOMAINPILOT_VHOST' environment variable
     local domain=$(docker inspect --format '{{range $index, $value := .Config.Env}}{{println $value}}{{end}}' $container_name | grep 'DOMAINPILOT_VHOST=' | cut -d '=' -f2)
 
     if [ -z "$domain" ]; then
@@ -57,31 +57,79 @@ update_caddy_json_config() {
         return
     fi
 
+    # Extract container port using 'DOMAINPILOT_CONTAINER_PORT' environment variable, default to 80 if not set
+    local container_port=$(docker inspect --format '{{range $index, $value := .Config.Env}}{{println $value}}{{end}}' $container_name | grep 'DOMAINPILOT_CONTAINER_PORT=' | cut -d '=' -f2)
+
+    # Set default port to 80 if not specified
+    if [ -z "$container_port" ]; then
+        container_port=80
+        cPrint info "No custom port specified for container $container_name, using default port 80"
+    else
+        cPrint info "Using custom port $container_port for container $container_name"
+    fi
+
     # Read current configuration
     local current_config=$(cat $CADDY_CONFIG_JSON)
 
     # Update the JSON configuration based on action
     if [ "$action" == "start" ]; then
-        # Add configuration for new domain with self-signed TLS
-        cPrint info "Adding the domain $domain to Caddy JSON configuration..."
-        local new_config=$(jq '.apps.http.servers.srv0.routes += [{"match": [{"host": ["'$domain'"]}],"handle": [{"handler": "reverse_proxy","upstreams": [{"dial": "'$container_name':80"}]}],"terminal": true}] | .apps.tls.automation.policies += [{"subjects": ["'$domain'"],"issuers": [{"module": "internal", "lifetime": "87600h"}]}]' <<< "$current_config")
+        # Check if the domain already exists in the routes
+        local domain_exists=$(jq '.apps.http.servers.srv0.routes[] | select(.match[].host[] == "'$domain'") | length > 0' <<< "$current_config" | grep -c "true")
+
+        if [ "$domain_exists" -eq "0" ]; then
+            # Add configuration for new domain
+            cPrint info "Adding the domain $domain to Caddy HTTP configuration..."
+            local new_config=$(jq '.apps.http.servers.srv0.routes += [{"match": [{"host": ["'$domain'"]}],"handle": [{"handler": "reverse_proxy","upstreams": [{"dial": "'$container_name':'$container_port'"}]}],"terminal": true}]' <<< "$current_config")
+
+            # Check if we need to add TLS policy (only if not already covered by wildcard)
+            local is_docker_local=$(echo "$domain" | grep -c "\.docker\.local$")
+            if [ "$is_docker_local" -eq "0" ]; then
+                # Only add explicit TLS policy if not covered by the wildcard *.docker.local
+                local tls_exists=$(jq '.apps.tls.automation.policies[] | select(.subjects[] == "'$domain'") | length > 0' <<< "$new_config" | grep -c "true")
+                if [ "$tls_exists" -eq "0" ]; then
+                    cPrint info "Adding TLS policy for $domain..."
+                    new_config=$(jq '.apps.tls.automation.policies += [{"subjects": ["'$domain'"],"issuers": [{"module": "internal", "lifetime": "87600h"}]}]' <<< "$new_config")
+                fi
+            fi
+
+            # Write the updated configuration
+            echo "$new_config" > $CADDY_CONFIG_JSON
+
+            # Check if DEBUG environment variable is set and equals 1
+            if [ "${DEBUG}" == "1" ]; then
+                echo $new_config
+            fi
+
+            # Reload Caddy to apply changes
+            cPrint info "Reloading Caddy"
+            caddy reload --config $CADDY_CONFIG_JSON
+        else
+            cPrint info "Domain $domain already exists in configuration"
+        fi
     elif [ "$action" == "die" ]; then
         # Remove configuration for the domain
-        cPrint info "Removing the domain $domain to Caddy JSON configuration..."
-        local new_config=$(jq 'del(.apps.http.servers.srv0.routes[] | select(.match[].host[] == "'$domain'")) | del(.apps.tls.automation.policies[] | select(.subjects[] == "'$domain'"))' <<< "$current_config")
+        cPrint info "Removing the domain $domain from Caddy configuration..."
+        local new_config=$(jq 'del(.apps.http.servers.srv0.routes[] | select(.match[].host[] == "'$domain'"))' <<< "$current_config")
+
+        # Check if this domain has a specific TLS policy (not covered by wildcard)
+        local is_docker_local=$(echo "$domain" | grep -c "\.docker\.local$")
+        if [ "$is_docker_local" -eq "0" ]; then
+            # Only remove explicit TLS policy if not covered by the wildcard *.docker.local
+            new_config=$(jq 'del(.apps.tls.automation.policies[] | select(.subjects[] == "'$domain'"))' <<< "$new_config")
+        fi
+
+        # Write the updated configuration
+        echo "$new_config" > $CADDY_CONFIG_JSON
+
+        # Check if DEBUG environment variable is set and equals 1
+        if [ "${DEBUG}" == "1" ]; then
+            echo $new_config
+        fi
+
+        # Reload Caddy to apply changes
+        cPrint info "Reloading Caddy"
+        caddy reload --config $CADDY_CONFIG_JSON
     fi
-
-    # Write the updated configuration
-    echo "$new_config" > $CADDY_CONFIG_JSON
-
-    # Check if DEBUG environment variable is set and equals 1
-    if [ "${DEBUG}" == "1" ]; then
-        echo $new_config
-    fi
-
-    # Reload Caddy to apply changes
-    cPrint info "Reloading Caddy"
-    caddy reload --config $CADDY_CONFIG_JSON
 }
 
 # Function to scan for existing containers
@@ -104,9 +152,10 @@ scan_existing_containers() {
 caddy start --config $CADDY_CONFIG_JSON
 
 figlet "DomainPilot"
-echo -e "${cl_success}Your Trusted Copilot for Secure Web Traffic${cl_reset}"
+echo -e "${cl_success}Your Trusted Copilot for Secure Web Traffic 🌎${cl_reset}"
 echo -e "${cl_cyan}By Phillarmonic Software <https://github.com/phillarmonic>${cl_reset}"
 cPrint info "Make sure to add the env var ${cl_info}'DOMAINPILOT_VHOST'${cl_reset} to your containers with the domain name you want to use."
+cPrint info "You can set ${cl_info}'DOMAINPILOT_CONTAINER_PORT'${cl_reset} to specify a non-default port (default is 80)."
 cPrint info "Make sure to add the network ${cl_info}'domainpilot-proxy'${cl_reset} (as external) for the containers you want to use with DomainPilot."
 
 # Scan for existing containers before starting the event listener
