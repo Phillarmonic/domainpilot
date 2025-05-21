@@ -1,0 +1,7 @@
+# DomainPilot Host Routes Configuration
+# Format: domain port
+#
+# Examples:
+# local-api.docker.local 3000
+# my-frontend.docker.local 8080
+# websocket-service.docker.local 9000
