@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error {http.error.status_code} | DomainPilot</title>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2980b9;
+            --text-color: #333;
+            --light-bg: #f5f8fa;
+            --border-color: #e1e4e8;
+            --shadow-color: rgba(0, 0, 0, 0.1);
+            --code-bg: #f6f8fa;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--light-bg);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        header {
+            background-color: white;
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 0;
+            text-align: center;
+            box-shadow: 0 2px 4px var(--shadow-color);
+        }
+
+        .logo {
+            font-size: 1.6rem;
+            font-weight: bold;
+            color: var(--primary-color);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo svg {
+            margin-right: 0.5rem;
+        }
+
+        .error-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px var(--shadow-color);
+            padding: 2rem;
+            margin: 2rem 0;
+            text-align: center;
+        }
+
+        .error-code {
+            font-size: 6rem;
+            font-weight: bold;
+            color: var(--primary-color);
+            margin: 0;
+            line-height: 1;
+        }
+
+        .error-title {
+            font-size: 1.8rem;
+            margin: 1rem 0;
+            color: var(--text-color);
+        }
+
+        .error-message {
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+            color: #666;
+        }
+
+        .help-section {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px var(--shadow-color);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .help-section h2 {
+            color: var(--primary-color);
+            margin-top: 0;
+            font-size: 1.4rem;
+        }
+
+        .code-block {
+            background-color: var(--code-bg);
+            border-radius: 4px;
+            padding: 1rem;
+            font-family: monospace;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.6rem 1.2rem;
+            background-color: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: var(--secondary-color);
+        }
+
+        footer {
+            background-color: white;
+            border-top: 1px solid var(--border-color);
+            padding: 1rem 0;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        footer a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 600px) {
+            .error-code {
+                font-size: 4rem;
+            }
+
+            .error-title {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <a href="/" class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#3498db" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 17L12 22L22 17" stroke="#3498db" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 12L12 17L22 12" stroke="#3498db" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                DomainPilot
+            </a>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="error-container">
+            <h1 class="error-code">{http.error.status_code}</h1>
+            <h2 class="error-title">{http.error.status_text}</h2>
+            <p class="error-message">An error occurred while processing your request.</p>
+            <a href="/" class="btn">Go Home</a>
+        </div>
+
+        <div class="help-section">
+            <h2>Troubleshooting Tips</h2>
+            <p>Here are some general troubleshooting steps:</p>
+            <ol>
+                <li>Check that the target service is running properly</li>
+                <li>Verify that the domain is correctly configured in DomainPilot</li>
+                <li>Look at the service logs for more detailed error information</li>
+                <li>Ensure the service is handling requests correctly</li>
+            </ol>
+            <p>You can check DomainPilot's configuration and logs:</p>
+            <div class="code-block">./list-domains</div>
+            <div class="code-block">./view-logs</div>
+        </div>
+    </div>
+
+    <footer>
+        <div class="container">
+            <p>Powered by <a href="https://github.com/Phillarmonic/domainpilot" target="_blank">DomainPilot</a> • Local HTTPS Reverse Proxy</p>
+        </div>
+    </footer>
+</body>
+</html>
