@@ -5,3 +5,4 @@ caddy_config/*
 !caddy_data/.gitkeep
 .env
 docker-compose.override.yml
+host-routes.conf

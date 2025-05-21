@@ -6,8 +6,10 @@ DomainPilot is a Caddy-based local HTTPS reverse proxy, inspired by the jwilder/
 
 - Automatic HTTPS for local development
 - Easy configuration for multiple domains
+- Route traffic to both Docker containers and local ports on your host
 - Caddy-powered for modern, efficient reverse proxying
 - Docker-based for easy setup and portability
+- Live reloading of configuration changes
 
 ## Prerequisites
 
@@ -22,34 +24,37 @@ DomainPilot is a Caddy-based local HTTPS reverse proxy, inspired by the jwilder/
    git clone https://github.com/Phillarmonic/domainpilot.git && cd domainpilot
    ```
 
-2. Add your local domains (prererredly ending with .docker.local) to /etc/hosts:
+2. Add your local domains (preferably ending with .docker.local) to /etc/hosts:
    
    ```bash
    127.0.0.1 hello-world.docker.local
    127.0.0.1 testing.docker.local
+   127.0.0.1 local-app.docker.local
    ```
 
-3. Start DomainPilot. It will create a docker network called domainpilot-proxy if it doesn't yet exists in your machine and start the docker container. Make sure to have port 80 and 443 available.
+3. Start DomainPilot. It will create a docker network called domainpilot-proxy if it doesn't yet exist in your machine and start the docker container. Make sure to have port 80 and 443 available.
    
    ```bash
    ./start
    ```
 
-4. Add the environment variable indicating the domain to containers you'd like to be accessed through the DomainPilot proxy (with the DOMAINPILOT_VHOST environment variable), as well as the external network
+4. Configure your domains using one of these methods:
+
+   a) **For Docker containers**: Add environment variables to your compose file
    
    ```yaml
-   # The version statement was deprecated. It is no longer necessary.
    services:
-   webserver:
-     image: phillarmonic/hello-world
-     # Here we don't expose ports because the port will be proxied
-     # By the Docker networking
-     environment:
-       - DOMAINPILOT_VHOST: hello-world.docker.local
-   
-     # Use the network in the container you'd like to be accessed
-     networks:
-       - domainpilot-proxy
+     webserver:
+       image: nginx
+       # Here we don't expose ports because the port will be proxied
+       # By the Docker networking
+       environment:
+         - DOMAINPILOT_VHOST=hello-world.docker.local
+         - DOMAINPILOT_CONTAINER_PORT=80  # Optional, defaults to 80
+     
+       # Use the network in the container you'd like to be accessed
+       networks:
+         - domainpilot-proxy
    
    # Declare the network in the bottom
    networks:
@@ -57,7 +62,60 @@ DomainPilot is a Caddy-based local HTTPS reverse proxy, inspired by the jwilder/
          external: true
    ```
 
-5. DomainPilot will look for a port 80 on your containers (you don't need to externally expose them) and forward the domain traffic to it.
+   b) **For local ports on your host**: Use the `host-routes.conf` file or helper script
+   
+   Either edit the file directly:
+   ```
+   # Format: domain port
+   local-app.docker.local 3000
+   ```
+   
+   Or use the helper script:
+   ```bash
+   ./add-host-route local-app.docker.local 3000
+   ```
+
+5. View all your configured domains and where they're pointing:
+
+   ```bash
+   ./list-domains
+   ```
+
+## Host Routing (Local Ports)
+
+DomainPilot can route traffic from domains to services running directly on your host machine (similar to ngrok functionality). This is perfect for:
+
+- Local development servers (Node.js, Rails, Django, etc.)
+- Frontend frameworks (React, Vue, Angular dev servers)
+- Backend APIs running directly on your machine
+- Any service listening on a local port
+
+### Adding Host Routes
+
+1. **Using the helper script** (recommended):
+
+   ```bash
+   ./add-host-route api.myapp.docker.local 3000
+   ```
+
+2. **Manually editing the configuration file**:
+
+   Edit `host-routes.conf` in the project root:
+
+   ```
+   # Format: domain port
+   api.myapp.docker.local 3000
+   frontend.myapp.docker.local 8080
+   ```
+
+   Each line represents one mapping from a domain to a local port.
+
+### How It Works
+
+- DomainPilot maps the domain to the specified port on your host machine (using host.docker.internal)
+- Changes to host-routes.conf are detected automatically - no need to restart DomainPilot
+- All traffic gets automatic HTTPS with locally trusted certificates
+- Use the `./list-domains` command to see all active mappings
 
 ## SSL trust
 
@@ -78,12 +136,18 @@ Find the file in caddy data mentioned in the picture below and open it:
 Trust it to identify websites and click ok:
 ![image](https://github.com/user-attachments/assets/37abda1e-54d3-48ec-b2fd-e5e481ce2b7e)
 
-You should no longer see SSL related errors on your local domais.
+You should no longer see SSL related errors on your local domains.
 
 Chrome:
 Google chrome settings for installing certificate authority vary from operating system to operating system. Please google how to import a certificate authority for your OS.
 
+## Utility Scripts
 
+DomainPilot includes several helpful utility scripts:
+
+- **./start**: Start DomainPilot (with optional `-d` flag for detached mode)
+- **./list-domains**: View all configured domains and their mappings
+- **./add-host-route**: Quickly add a new host route (local port mapping)
 
 ## Project Structure
 
@@ -92,6 +156,12 @@ Google chrome settings for installing certificate authority vary from operating 
 **start**: Script to start DomainPilot
 
 **update-ca**: Script to update the Certificate Authority
+
+**list-domains**: Script to list all domain mappings
+
+**add-host-route**: Script to add new host route mappings
+
+**host-routes.conf**: Configuration file for host routes
 
 **caddy_config**: Directory for Caddy configuration
 

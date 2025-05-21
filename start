@@ -13,11 +13,43 @@ else
     echo "Docker network '$DOCKER_NETWORK_NAME' already exists. Skipping..."
 fi
 
+# Create necessary directories if they don't exist
+mkdir -p caddy_data
+mkdir -p caddy_config
+
+# Ensure the host-routes.conf file exists in the root directory
+if [ ! -f "host-routes.conf" ]; then
+    echo "Creating host-routes.conf file..."
+    cat > "host-routes.conf" << EOF
+# DomainPilot Host Routes Configuration
+# Format: domain port
+#
+# Examples:
+# local-api.docker.local 3000
+# my-frontend.docker.local 8080
+# websocket-service.docker.local 9000
+EOF
+    echo "host-routes.conf created in project root directory."
+else
+    echo "host-routes.conf already exists. Skipping..."
+fi
+
+# Copy example .env file if .env doesn't exist
 if [ ! -e ".env" ]; then
     cp ".env.example" ".env"
     echo "Example env file copied to .env"
 fi
 
+# Display helpful information
+echo "======================================="
+echo "DomainPilot is starting..."
+echo "======================================="
+echo "✅ To route Docker containers: Add DOMAINPILOT_VHOST environment variable to your containers"
+echo "✅ To route local services: Edit host-routes.conf with domain and port mappings"
+echo "✅ Remember to add domains to /etc/hosts (e.g., 127.0.0.1 example.docker.local)"
+echo "======================================="
+
+# Start docker-compose with or without detached mode
 if [ "$1" == "-d" ]; then
     docker compose up "$1"
 else
