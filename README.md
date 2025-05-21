@@ -39,7 +39,7 @@ DomainPilot is a Caddy-based local HTTPS reverse proxy, inspired by the jwilder/
    ```
 
 4. Configure your domains using one of these methods:
-
+   
    a) **For Docker containers**: Add environment variables to your compose file
    
    ```yaml
@@ -51,7 +51,7 @@ DomainPilot is a Caddy-based local HTTPS reverse proxy, inspired by the jwilder/
        environment:
          - DOMAINPILOT_VHOST=hello-world.docker.local
          - DOMAINPILOT_CONTAINER_PORT=80  # Optional, defaults to 80
-     
+   
        # Use the network in the container you'd like to be accessed
        networks:
          - domainpilot-proxy
@@ -61,24 +61,14 @@ DomainPilot is a Caddy-based local HTTPS reverse proxy, inspired by the jwilder/
      domainpilot-proxy:
          external: true
    ```
-
+   
    b) **For local ports on your host**: Use the `host-routes.conf` file or helper script
    
    Either edit the file directly:
+   
    ```
    # Format: domain port
    local-app.docker.local 3000
-   ```
-   
-   Or use the helper script:
-   ```bash
-   ./add-host-route local-app.docker.local 3000
-   ```
-
-5. View all your configured domains and where they're pointing:
-
-   ```bash
-   ./list-domains
    ```
 
 ## Host Routing (Local Ports)
@@ -92,23 +82,17 @@ DomainPilot can route traffic from domains to services running directly on your 
 
 ### Adding Host Routes
 
-1. **Using the helper script** (recommended):
+**Manually editing the configuration file**:
 
-   ```bash
-   ./add-host-route api.myapp.docker.local 3000
-   ```
+Edit `host-routes.conf` in the project root:
 
-2. **Manually editing the configuration file**:
+```
+# Format: domain port
+api.myapp.docker.local 3000
+frontend.myapp.docker.local 8080
+```
 
-   Edit `host-routes.conf` in the project root:
-
-   ```
-   # Format: domain port
-   api.myapp.docker.local 3000
-   frontend.myapp.docker.local 8080
-   ```
-
-   Each line represents one mapping from a domain to a local port.
+Each line represents one mapping from a domain to a local port.
 
 ### How It Works
 
@@ -146,8 +130,6 @@ Google chrome settings for installing certificate authority vary from operating 
 DomainPilot includes several helpful utility scripts:
 
 - **./start**: Start DomainPilot (with optional `-d` flag for detached mode)
-- **./list-domains**: View all configured domains and their mappings
-- **./add-host-route**: Quickly add a new host route (local port mapping)
 
 ## Project Structure
 
@@ -156,10 +138,6 @@ DomainPilot includes several helpful utility scripts:
 **start**: Script to start DomainPilot
 
 **update-ca**: Script to update the Certificate Authority
-
-**list-domains**: Script to list all domain mappings
-
-**add-host-route**: Script to add new host route mappings
 
 **host-routes.conf**: Configuration file for host routes
 
