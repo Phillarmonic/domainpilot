@@ -18,6 +18,9 @@ DOMAIN_MAPPINGS_FILE="/opt/domain_mappings.txt"
 # Access log file path
 ACCESS_LOG_FILE="/data/access.log"
 
+# Error pages directory
+ERROR_PAGES_DIR="/opt/error_pages"
+
 # Function to truncate text and add ellipsis if needed
 truncate_text() {
     local text="$1"
@@ -28,6 +31,84 @@ truncate_text() {
     else
         echo "$text"
     fi
+}
+# Function to start Caddy and wait for it to be ready
+start_caddy() {
+    local config_file=$1
+    local max_attempts=5
+    local attempt=1
+    local delay=2
+
+    cPrint info "Starting Caddy..."
+
+    # Start Caddy
+    caddy start --config "$config_file"
+
+    # Wait for Caddy to start and be ready
+    cPrint info "Waiting for Caddy to be ready..."
+
+    while [ $attempt -le $max_attempts ]; do
+        # Sleep first to give Caddy time to start
+        sleep $delay
+
+        # Try to check admin API
+        if curl -s -o /dev/null -w "%{http_code}" http://localhost:2019/config/ &>/dev/null; then
+            cPrint info "Caddy is ready and admin API is accessible."
+            return 0
+        fi
+
+        cPrint warning "Attempt $attempt: Caddy admin API not yet accessible. Waiting ${delay}s..."
+        delay=$((delay * 2))
+        attempt=$((attempt + 1))
+    done
+
+    cPrint warning "Caddy may not be fully started after $max_attempts attempts, but will continue."
+    return 0
+}
+
+# Function to reload Caddy with retries
+reload_caddy() {
+    local max_attempts=5
+    local attempt=1
+    local delay=1
+    local config_file=$1
+
+    cPrint info "Reloading Caddy..."
+
+    while [ $attempt -le $max_attempts ]; do
+        caddy reload --config "$config_file" 2>/dev/null
+
+        # Check if reload was successful
+        if [ $? -eq 0 ]; then
+            cPrint info "Caddy reloaded successfully on attempt $attempt."
+            return 0
+        fi
+
+        cPrint warning "Attempt $attempt to reload Caddy failed. Waiting ${delay}s before retry..."
+        sleep $delay
+
+        # Exponential backoff (1s, 2s, 4s, 8s)
+        delay=$((delay * 2))
+        attempt=$((attempt + 1))
+    done
+
+    cPrint error "Failed to reload Caddy after $max_attempts attempts."
+
+    # Check admin API status
+    cPrint info "Checking Caddy admin API status..."
+    if curl -s -o /dev/null -w "%{http_code}" http://localhost:2019/config/ &>/dev/null; then
+        cPrint info "Admin API appears to be running now."
+    else
+        cPrint error "Admin API is not responding. Caddy may need to be restarted."
+
+        # Try to restart Caddy as a last resort
+        cPrint info "Attempting to restart Caddy..."
+        caddy stop
+        sleep 2
+        caddy start --config "$config_file"
+    fi
+
+    return 1
 }
 
 # Function to validate JSON before writing to configuration file
@@ -59,6 +140,54 @@ validate_and_write_config() {
         rm "$temp_file"
         return 1
     fi
+}
+
+# Function to debug the current Caddy configuration
+debug_caddy_config() {
+    cPrint info "Debugging Caddy configuration..."
+
+    # Check if the config file exists
+    if [ ! -f "$CADDY_CONFIG_JSON" ]; then
+        cPrint error "Caddy configuration file not found at $CADDY_CONFIG_JSON"
+        return 1
+    fi
+
+    # Check if error pages directory exists
+    if [ ! -d "$ERROR_PAGES_DIR" ]; then
+        cPrint error "Error pages directory not found at $ERROR_PAGES_DIR"
+        mkdir -p "$ERROR_PAGES_DIR"
+        cPrint info "Created error pages directory at $ERROR_PAGES_DIR"
+    fi
+
+    # List error pages
+    cPrint info "Error pages in $ERROR_PAGES_DIR:"
+    ls -la "$ERROR_PAGES_DIR"
+
+    # Check error handlers in Caddy config
+    local error_handlers=$(jq '.apps.http.servers.srv0.errors' "$CADDY_CONFIG_JSON")
+    cPrint info "Error handlers configuration:"
+    echo "$error_handlers" | jq .
+
+    # Check if specific error pages exist and are readable
+    local error_paths=$(jq -r '.apps.http.servers.srv0.errors.routes[0].handle[0].paths | keys[]' "$CADDY_CONFIG_JSON" 2>/dev/null)
+    if [ -n "$error_paths" ]; then
+        cPrint info "Checking error page paths:"
+        while IFS= read -r code; do
+            local path=$(jq -r ".apps.http.servers.srv0.errors.routes[0].handle[0].paths[\"$code\"]" "$CADDY_CONFIG_JSON")
+            cPrint info "Error code $code -> $path"
+            if [ -f "$path" ]; then
+                cPrint info "  File exists and is readable"
+            else
+                cPrint error "  File does not exist or is not readable"
+            fi
+        done <<< "$error_paths"
+    else
+        cPrint error "No error paths found in configuration"
+    fi
+
+    # Check Caddy status - this may not work on all Caddy versions
+    cPrint info "Caddy status:"
+    caddy status 2>/dev/null || cPrint info "Status command not available in this version of Caddy"
 }
 
 # Function to list all domain mappings and save to a file
@@ -166,66 +295,276 @@ list_domain_mappings() {
     cat $DOMAIN_MAPPINGS_FILE
 }
 
-# Check if the Caddy JSON configuration exists, if not create it
-if [ ! -f "$CADDY_CONFIG_JSON" ]; then
-    cPrint info "Creating initial Caddy JSON configuration."
-    # Create an initial JSON configuration with admin API, basic HTTP server settings, and logging
-    echo '{
-            "admin": {
-              "listen": "localhost:2019"
-            },
-            "logging": {
-              "logs": {
-                "default": {
-                  "level": "INFO"
-                },
-                "access": {
-                  "level": "INFO",
-                  "writer": {
-                    "output": "file",
-                    "filename": "'$ACCESS_LOG_FILE'"
-                  },
-                  "encoder": {
-                    "format": "json"
-                  }
+# Function to create error page handlers JSON configuration
+create_error_handlers_config() {
+    local handlers_json='{
+        "error_pages": {
+            "handler": "error_pages",
+            "error_codes": [400, 401, 403, 404, 500, 502, 503, 504],
+            "paths": {
+                "400": "/opt/error_pages/generic.html",
+                "401": "/opt/error_pages/generic.html",
+                "403": "/opt/error_pages/403.html",
+                "404": "/opt/error_pages/404.html",
+                "500": "/opt/error_pages/500.html",
+                "502": "/opt/error_pages/502.html",
+                "503": "/opt/error_pages/500.html",
+                "504": "/opt/error_pages/500.html",
+                "*": "/opt/error_pages/generic.html"
+            }
+        }
+    }'
+
+    echo "$handlers_json"
+}
+
+# Function to ensure error handlers are properly configured
+ensure_error_handlers() {
+    cPrint info "Ensuring error handlers are configured..."
+
+    # Check if config file exists first
+    if [ ! -f "$CADDY_CONFIG_JSON" ]; then
+        cPrint info "Config file doesn't exist. Creating initial configuration first."
+        create_initial_config
+        return 0
+    fi
+
+    # Read current configuration
+    local current_config=$(cat $CADDY_CONFIG_JSON)
+
+    # Check if the file is empty or contains invalid JSON
+    if [ -z "$current_config" ]; then
+        cPrint info "Config file is empty. Creating initial configuration."
+        create_initial_config
+        return 0
+    else
+        # Validate JSON format
+        if ! jq '.' <<< "$current_config" > /dev/null 2>&1; then
+            cPrint error "Invalid JSON in config file. Creating new configuration."
+            create_initial_config
+            return 0
+        fi
+    fi
+
+    # Check if basic structure exists
+    local has_apps=$(jq 'has("apps")' <<< "$current_config")
+
+    if [ "$has_apps" != "true" ]; then
+        cPrint info "Basic configuration structure missing. Creating new configuration."
+        create_initial_config
+        return 0
+    fi
+
+    # Check if error handling structure exists
+    local has_errors=$(jq '.apps.http.servers.srv0 | has("errors")' <<< "$current_config" 2>/dev/null)
+
+    if [ "$has_errors" != "true" ]; then
+        cPrint info "Error handling configuration missing. Adding it..."
+
+        # Add error handling configuration
+        local new_config=$(jq '.apps.http.servers.srv0.errors = {
+            "routes": [
+                {
+                    "handle": [
+                        {
+                            "handler": "static_response",
+                            "headers": {
+                                "Content-Type": ["text/html"]
+                            },
+                            "status_code": "{http.error.status_code}",
+                            "body": {
+                                "file": "/opt/error_pages/{http.error.status_code}.html",
+                                "fallback": "/opt/error_pages/generic.html"
+                            }
+                        }
+                    ]
                 }
-              }
+            ]
+        }' <<< "$current_config")
+
+        if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
+            cPrint info "Error handling configuration added successfully."
+
+            # Reload Caddy to apply changes
+            cPrint info "Reloading Caddy with updated error handlers"
+            reload_caddy "$CADDY_CONFIG_JSON"
+        else
+            cPrint error "Failed to add error handling configuration."
+            return 1
+        fi
+    else
+        cPrint info "Error handlers already configured."
+    fi
+
+    return 0
+}
+
+# Function to ensure error pages exist
+setup_error_pages() {
+    cPrint info "Setting up error pages..."
+
+    # Create the error pages directory if it doesn't exist
+    mkdir -p "$ERROR_PAGES_DIR"
+
+    # Define the error pages to check
+    declare -A error_pages=(
+        ["404.html"]="404 - Page Not Found"
+        ["403.html"]="403 - Forbidden"
+        ["500.html"]="500 - Server Error"
+        ["502.html"]="502 - Bad Gateway"
+        ["generic.html"]="Generic Error Page"
+    )
+
+    # Check if the error pages exist, otherwise copy from the default templates or create simple ones
+    for page in "${!error_pages[@]}"; do
+        if [ ! -f "$ERROR_PAGES_DIR/$page" ]; then
+            # If there's a default template, copy it
+            if [ -f "/opt/default_error_pages/$page" ]; then
+                cPrint info "Creating default error page: $page"
+                cp "/opt/default_error_pages/$page" "$ERROR_PAGES_DIR/$page"
+            else
+                # Otherwise create a simple error page
+                cPrint info "Creating simple error page: $page"
+                echo "<!DOCTYPE html>
+<html>
+<head>
+    <title>${error_pages[$page]} | DomainPilot</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; color: #333; max-width: 650px; margin: 0 auto; padding: 20px; }
+        h1 { color: #3498db; }
+        .error-container { background-color: #f8f9fa; border-radius: 5px; padding: 20px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>${error_pages[$page]}</h1>
+    <div class='error-container'>
+        <p>The page you requested could not be displayed.</p>
+        <p>You can customize this error page by editing <code>$ERROR_PAGES_DIR/$page</code></p>
+    </div>
+    <p><small>Powered by DomainPilot</small></p>
+</body>
+</html>" > "$ERROR_PAGES_DIR/$page"
+            fi
+        fi
+    done
+
+    # Print the available error pages
+    cPrint info "Available error pages:"
+    ls -la "$ERROR_PAGES_DIR"
+}
+
+# Function to fix error handlers
+fix_error_handlers() {
+    cPrint info "Fixing error handlers configuration..."
+
+    # Read current configuration
+    local current_config=$(cat $CADDY_CONFIG_JSON)
+
+    # Get the error handlers configuration
+    local error_handlers_json=$(create_error_handlers_config)
+
+    # Create a new configuration with correct error handlers
+    local new_config=$(jq '.apps.http.servers.srv0.errors.routes[0].handle = []' <<< "$current_config")
+    new_config=$(jq --argjson handlers "$(echo "$error_handlers_json" | jq .error_pages)" '.apps.http.servers.srv0.errors.routes[0].handle = [$handlers]' <<< "$new_config")
+
+    # Validate and write the updated configuration
+    if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
+        cPrint info "Error handlers successfully fixed."
+
+        # Reload Caddy to apply changes
+        cPrint info "Reloading Caddy with fixed error handlers"
+        reload_caddy "$CADDY_CONFIG_JSON"
+        return 0
+    else
+        cPrint error "Failed to fix error handlers."
+        return 1
+    fi
+}
+
+# Function to create initial Caddy configuration
+# Function to create initial Caddy configuration
+create_initial_config() {
+    cPrint info "Creating initial Caddy JSON configuration."
+
+    # Create an initial JSON configuration with admin API, basic HTTP server settings, and logging
+    cat > "$CADDY_CONFIG_JSON" << EOL
+{
+    "admin": {
+        "listen": "localhost:2019"
+    },
+    "logging": {
+        "logs": {
+            "default": {
+                "level": "INFO"
             },
-            "apps": {
-              "http": {
-                "servers": {
-                  "srv0": {
+            "access": {
+                "level": "INFO",
+                "writer": {
+                    "output": "file",
+                    "filename": "${ACCESS_LOG_FILE}"
+                },
+                "encoder": {
+                    "format": "json"
+                }
+            }
+        }
+    },
+    "apps": {
+        "http": {
+            "servers": {
+                "srv0": {
                     "listen": [":80", ":443"],
                     "routes": [],
                     "logs": {
-                      "logger_names": {
-                        "*": "access"
-                      }
-                    }
-                  }
-                }
-              },
-              "tls": {
-                "automation": {
-                  "policies": [
-                    {
-                      "subjects": ["*.docker.local"],
-                      "issuers": [
-                        {
-                          "module": "internal",
-                          "ca": "local",
-                          "lifetime": "87600h"
+                        "logger_names": {
+                            "*": "access"
                         }
-                      ]
+                    },
+                    "errors": {
+                        "routes": [
+                            {
+                                "handle": [
+                                    {
+                                        "handler": "rewrite",
+                                        "uri": "/{http.error.status_code}.html"
+                                    }
+                                ]
+                            },
+                            {
+                                "handle": [
+                                    {
+                                        "handler": "file_server",
+                                        "root": "/opt/error_pages",
+                                        "index_names": []
+                                    }
+                                ]
+                            }
+                        ]
                     }
-                  ]
                 }
-              }
             }
-          }
-' > $CADDY_CONFIG_JSON
+        },
+        "tls": {
+            "automation": {
+                "policies": [
+                    {
+                        "subjects": ["*.docker.local"],
+                        "issuers": [
+                            {
+                                "module": "internal",
+                                "ca": "local",
+                                "lifetime": "87600h"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    }
+}
+EOL
     cPrint info "Caddy JSON configuration created at $CADDY_CONFIG_JSON"
-fi
+}
 
 # Function to update Caddy JSON configuration for containers
 update_caddy_json_config() {
@@ -275,20 +614,23 @@ update_caddy_json_config() {
                 fi
             fi
 
-            # Write the updated configuration
-            echo "$new_config" > $CADDY_CONFIG_JSON
+            # Validate and write the updated configuration
+            if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
+                # Check if DEBUG environment variable is set and equals 1
+                if [ "${DEBUG}" == "1" ]; then
+                    echo $new_config
+                fi
 
-            # Check if DEBUG environment variable is set and equals 1
-            if [ "${DEBUG}" == "1" ]; then
-                echo $new_config
+                # Reload Caddy to apply changes
+                cPrint info "Reloading Caddy"
+                reload_caddy "$CADDY_CONFIG_JSON"
+
+                # Ensure error handlers are configured
+                ensure_error_handlers
+
+                # Update the domain mappings
+                list_domain_mappings
             fi
-
-            # Reload Caddy to apply changes
-            cPrint info "Reloading Caddy"
-            caddy reload --config $CADDY_CONFIG_JSON
-
-            # Update the domain mappings
-            list_domain_mappings
         else
             cPrint info "Domain $domain already exists in configuration"
         fi
@@ -304,20 +646,23 @@ update_caddy_json_config() {
             new_config=$(jq 'del(.apps.tls.automation.policies[] | select(.subjects[] == "'$domain'"))' <<< "$new_config")
         fi
 
-        # Write the updated configuration
-        echo "$new_config" > $CADDY_CONFIG_JSON
+        # Validate and write the updated configuration
+        if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
+            # Check if DEBUG environment variable is set and equals 1
+            if [ "${DEBUG}" == "1" ]; then
+                echo $new_config
+            fi
 
-        # Check if DEBUG environment variable is set and equals 1
-        if [ "${DEBUG}" == "1" ]; then
-            echo $new_config
+            # Reload Caddy to apply changes
+            cPrint info "Reloading Caddy"
+            reload_caddy "$CADDY_CONFIG_JSON"
+
+            # Ensure error handlers are configured
+            ensure_error_handlers
+
+            # Update the domain mappings
+            list_domain_mappings
         fi
-
-        # Reload Caddy to apply changes
-        cPrint info "Reloading Caddy"
-        caddy reload --config $CADDY_CONFIG_JSON
-
-        # Update the domain mappings
-        list_domain_mappings
     fi
 }
 
@@ -407,15 +752,20 @@ configure_host_routes() {
         fi
     done < "$HOST_ROUTES_CONF"
 
-    # Write the updated configuration
-    echo "$new_config" > $CADDY_CONFIG_JSON
+    # Validate and write the updated configuration
+    if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
+        # Reload Caddy to apply changes
+        cPrint info "Reloading Caddy with host routes"
+        reload_caddy "$CADDY_CONFIG_JSON"
 
-    # Reload Caddy to apply changes
-    cPrint info "Reloading Caddy with host routes"
-    caddy reload --config $CADDY_CONFIG_JSON
+        # Ensure error handlers are configured
+        ensure_error_handlers
 
-    # Update the domain mappings
-    list_domain_mappings
+        # Update the domain mappings
+        list_domain_mappings
+    else
+        cPrint error "Failed to update host routes. Keeping previous configuration."
+    fi
 }
 
 # Function to scan for existing containers
@@ -475,8 +825,27 @@ if [ "$1" == "logs" ]; then
     exit 0
 fi
 
-# Start Caddy with the initial configuration
-caddy start --config $CADDY_CONFIG_JSON
+# Check for debug command
+if [ "$1" == "debug" ]; then
+    debug_caddy_config
+    exit 0
+fi
+
+# Check for fix command to manually fix error handlers
+if [ "$1" == "fix" ]; then
+    setup_error_pages
+    fix_error_handlers
+    exit 0
+fi
+
+# Setup error pages
+setup_error_pages
+
+# Ensure error handlers are configured
+ensure_error_handlers
+
+# Start Caddy with the initial configuration and wait for it to be ready
+start_caddy "$CADDY_CONFIG_JSON"
 
 figlet "DomainPilot"
 echo -e "${cl_success}Your Trusted Copilot for Secure Web Traffic 🌎${cl_reset}"
@@ -487,6 +856,8 @@ cPrint info "Make sure to add the network ${cl_info}'domainpilot-proxy'${cl_rese
 cPrint info "To route localhost ports, edit ${cl_info}'/opt/host-routes.conf'${cl_reset} with format: 'domain port'"
 cPrint info "To list all domain mappings, run: ${cl_info}'docker exec -it caddy-proxy domainpilot list'${cl_reset}"
 cPrint info "To view access logs, run: ${cl_info}'docker exec -it caddy-proxy domainpilot logs'${cl_reset} or check ${cl_info}'./caddy_data/access.log'${cl_reset}"
+cPrint info "Custom error pages are located at: ${cl_info}'./caddy_config/error_pages/'${cl_reset}"
+cPrint info "If error pages are not working, run: ${cl_info}'docker exec -it caddy-proxy domainpilot fix'${cl_reset}"
 
 # Configure host routes initially
 configure_host_routes
