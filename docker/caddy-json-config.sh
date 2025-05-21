@@ -15,6 +15,53 @@ HOST_ROUTES_TRACKER="/tmp/host_routes_tracker.txt"
 # File to store the domain mappings list
 DOMAIN_MAPPINGS_FILE="/opt/domain_mappings.txt"
 
+# Access log file path
+ACCESS_LOG_FILE="/data/access.log"
+
+# Function to truncate text and add ellipsis if needed
+truncate_text() {
+    local text="$1"
+    local max_length="$2"
+
+    if [ ${#text} -gt $max_length ]; then
+        echo "${text:0:$((max_length-3))}..."
+    else
+        echo "$text"
+    fi
+}
+
+# Function to validate JSON before writing to configuration file
+validate_and_write_config() {
+    local config="$1"
+    local output_file="$2"
+
+    # Create a temporary file
+    local temp_file=$(mktemp)
+
+    # Write the config to the temporary file
+    echo "$config" > "$temp_file"
+
+    # Validate JSON
+    if jq '.' "$temp_file" > /dev/null 2>&1; then
+        # JSON is valid, write to the actual config file
+        cat "$temp_file" > "$output_file"
+        rm "$temp_file"
+        return 0
+    else
+        # JSON is invalid, log error and keep the old config
+        cPrint error "Invalid JSON configuration generated. Keeping previous configuration."
+        cPrint error "This is likely a bug in DomainPilot. Please report this issue."
+        # Debug info if DEBUG is enabled
+        if [ "${DEBUG}" == "1" ]; then
+            cPrint error "Invalid JSON:"
+            cat "$temp_file"
+        fi
+        rm "$temp_file"
+        return 1
+    fi
+}
+
+# Function to list all domain mappings and save to a file
 list_domain_mappings() {
     cPrint info "Listing all domain mappings..."
 
@@ -119,32 +166,42 @@ list_domain_mappings() {
     cat $DOMAIN_MAPPINGS_FILE
 }
 
-truncate_text() {
-    local text="$1"
-    local max_length="$2"
-
-    if [ ${#text} -gt $max_length ]; then
-        echo "${text:0:$((max_length-3))}..."
-    else
-        echo "$text"
-    fi
-}
-
-
 # Check if the Caddy JSON configuration exists, if not create it
 if [ ! -f "$CADDY_CONFIG_JSON" ]; then
     cPrint info "Creating initial Caddy JSON configuration."
-    # Create an initial JSON configuration with admin API and basic HTTP server settings
+    # Create an initial JSON configuration with admin API, basic HTTP server settings, and logging
     echo '{
             "admin": {
               "listen": "localhost:2019"
+            },
+            "logging": {
+              "logs": {
+                "default": {
+                  "level": "INFO"
+                },
+                "access": {
+                  "level": "INFO",
+                  "writer": {
+                    "output": "file",
+                    "filename": "'$ACCESS_LOG_FILE'"
+                  },
+                  "encoder": {
+                    "format": "json"
+                  }
+                }
+              }
             },
             "apps": {
               "http": {
                 "servers": {
                   "srv0": {
                     "listen": [":80", ":443"],
-                    "routes": []
+                    "routes": [],
+                    "logs": {
+                      "logger_names": {
+                        "*": "access"
+                      }
+                    }
                   }
                 }
               },
@@ -289,16 +346,33 @@ configure_host_routes() {
     # First, remove all host routes by recreating a configuration without them
     cPrint info "Removing existing host routes..."
 
-    # Get all non-host routes first (container routes)
-    local container_routes=$(jq '.apps.http.servers.srv0.routes[] | select(.handle[].handler == "reverse_proxy" and (.handle[].upstreams[].dial | test("host.docker.internal") | not))' <<< "$current_config")
-
-    # Create a new configuration with just container routes
+    # Create a new base configuration with empty routes array
     local new_config=$(jq '.apps.http.servers.srv0.routes = []' <<< "$current_config")
+
+    # Get all non-host routes first (container routes)
+    local container_routes=$(jq -c '.apps.http.servers.srv0.routes[] | select(.handle[].handler == "reverse_proxy" and (.handle[].upstreams[].dial | test("host.docker.internal") | not))' <<< "$current_config")
 
     # If we have container routes, add them back
     if [ -n "$container_routes" ]; then
-        # Need to format container_routes properly to add it back
-        new_config=$(jq --argjson routes "[$container_routes]" '.apps.http.servers.srv0.routes = $routes' <<< "$new_config")
+        # First check if we have multiple routes by counting newlines
+        local route_count=$(echo "$container_routes" | wc -l)
+
+        if [ "$route_count" -gt 1 ]; then
+            # Multiple routes - we need to format them as an array
+            local container_routes_array="["
+            while IFS= read -r route; do
+                container_routes_array+="$route,"
+            done <<< "$container_routes"
+            # Remove the trailing comma and close the array
+            container_routes_array="${container_routes_array%,}]"
+
+            # Add the routes back to the config
+            new_config=$(jq --argjson routes "$container_routes_array" '.apps.http.servers.srv0.routes = $routes' <<< "$new_config")
+        elif [ "$route_count" -eq 1 ]; then
+            # Single route - add it as a single-element array
+            new_config=$(jq --argjson route "$container_routes" '.apps.http.servers.srv0.routes = [$route]' <<< "$new_config")
+        fi
+        # If route_count is 0, we already have an empty routes array
     fi
 
     # Now add new host routes from the configuration file
@@ -369,6 +443,21 @@ watch_host_routes() {
     done
 }
 
+# Function to tail the access log
+tail_access_log() {
+    cPrint info "Tailing access log from $ACCESS_LOG_FILE"
+    if [ -f "$ACCESS_LOG_FILE" ]; then
+        tail -n 20 -f "$ACCESS_LOG_FILE"
+    else
+        cPrint error "Access log file not found. It will be created when requests are made."
+        # Wait for the log file to be created
+        while [ ! -f "$ACCESS_LOG_FILE" ]; do
+            sleep 1
+        done
+        tail -f "$ACCESS_LOG_FILE"
+    fi
+}
+
 # Check for list domains command
 if [ "$1" == "list" ]; then
     # If Caddy config exists, list domains
@@ -377,6 +466,12 @@ if [ "$1" == "list" ]; then
     else
         cPrint error "Caddy configuration not found. Is DomainPilot running?"
     fi
+    exit 0
+fi
+
+# Check for tail logs command
+if [ "$1" == "logs" ]; then
+    tail_access_log
     exit 0
 fi
 
@@ -390,7 +485,8 @@ cPrint info "Make sure to add the env var ${cl_info}'DOMAINPILOT_VHOST'${cl_rese
 cPrint info "You can set ${cl_info}'DOMAINPILOT_CONTAINER_PORT'${cl_reset} to specify a non-default port (default is 80)."
 cPrint info "Make sure to add the network ${cl_info}'domainpilot-proxy'${cl_reset} (as external) for the containers you want to use with DomainPilot."
 cPrint info "To route localhost ports, edit ${cl_info}'/opt/host-routes.conf'${cl_reset} with format: 'domain port'"
-cPrint info "To list all domain mappings, run: ${cl_info}'docker exec -it domainpilot list'${cl_reset}"
+cPrint info "To list all domain mappings, run: ${cl_info}'docker exec -it caddy-proxy domainpilot list'${cl_reset}"
+cPrint info "To view access logs, run: ${cl_info}'docker exec -it caddy-proxy domainpilot logs'${cl_reset} or check ${cl_info}'./caddy_data/access.log'${cl_reset}"
 
 # Configure host routes initially
 configure_host_routes
