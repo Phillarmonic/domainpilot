@@ -251,13 +251,13 @@ list_domain_mappings() {
     # Read current configuration and extract domain mappings
     local current_config=$(cat $CADDY_CONFIG_JSON)
 
-    # Get all routes
-    local routes=$(jq -c '.apps.http.servers.srv0.routes[]' <<< "$current_config")
+    # Get all routes, excluding the healthcheck route
+    local routes=$(jq -c '.apps.http.servers.srv0.routes[] | select(.match[0].path[0]? != "/_healthz")' <<< "$current_config")
     local found_routes=0
 
     # Process each route
     while IFS= read -r route; do
-        local domain=$(jq -r '.match[].host[]' <<< "$route" 2>/dev/null)
+        local domain=$(jq -r '.match[].host[]?' <<< "$route" 2>/dev/null) # Added ? for safety
         if [ -n "$domain" ]; then
             # Truncate domain if necessary
             local display_domain=$(truncate_text "$domain" $((domain_col_width - 1)))
@@ -367,20 +367,23 @@ ensure_error_handlers() {
                 {
                     "handle": [
                         {
-                            "handler": "static_response",
-                            "headers": {
-                                "Content-Type": ["text/html"]
-                            },
-                            "status_code": "{http.error.status_code}",
-                            "body": {
-                                "file": "/opt/error_pages/{http.error.status_code}.html",
-                                "fallback": "/opt/error_pages/generic.html"
-                            }
+                            "handler": "rewrite",
+                            "uri": "/{http.error.status_code}.html"
+                        }
+                    ]
+                },
+                {
+                    "handle": [
+                        {
+                            "handler": "file_server",
+                            "root": "/opt/error_pages",
+                            "index_names": []
                         }
                     ]
                 }
             ]
         }' <<< "$current_config")
+
 
         if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
             cPrint info "Error handling configuration added successfully."
@@ -460,12 +463,30 @@ fix_error_handlers() {
     # Read current configuration
     local current_config=$(cat $CADDY_CONFIG_JSON)
 
-    # Get the error handlers configuration
-    local error_handlers_json=$(create_error_handlers_config)
+    # Define the correct error handling routes
+    local error_routes_json='[
+        {
+            "handle": [
+                {
+                    "handler": "rewrite",
+                    "uri": "/{http.error.status_code}.html"
+                }
+            ]
+        },
+        {
+            "handle": [
+                {
+                    "handler": "file_server",
+                    "root": "/opt/error_pages",
+                    "index_names": []
+                }
+            ]
+        }
+    ]'
 
-    # Create a new configuration with correct error handlers
-    local new_config=$(jq '.apps.http.servers.srv0.errors.routes[0].handle = []' <<< "$current_config")
-    new_config=$(jq --argjson handlers "$(echo "$error_handlers_json" | jq .error_pages)" '.apps.http.servers.srv0.errors.routes[0].handle = [$handlers]' <<< "$new_config")
+    # Update the error routes in the configuration
+    local new_config=$(jq --argjson er "$error_routes_json" '.apps.http.servers.srv0.errors.routes = $er' <<< "$current_config")
+
 
     # Validate and write the updated configuration
     if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
@@ -482,11 +503,10 @@ fix_error_handlers() {
 }
 
 # Function to create initial Caddy configuration
-# Function to create initial Caddy configuration
 create_initial_config() {
     cPrint info "Creating initial Caddy JSON configuration."
 
-    # Create an initial JSON configuration with admin API, basic HTTP server settings, and logging
+    # Create an initial JSON configuration with admin API, basic HTTP server settings, logging, and healthcheck route
     cat > "$CADDY_CONFIG_JSON" << EOL
 {
     "admin": {
@@ -514,7 +534,17 @@ create_initial_config() {
             "servers": {
                 "srv0": {
                     "listen": [":80", ":443"],
-                    "routes": [],
+                    "routes": [
+                        {
+                            "match": [{"path": ["/_healthz"]}],
+                            "handle": [{
+                                "handler": "static_response",
+                                "status_code": 200,
+                                "body": "OK"
+                            }],
+                            "terminal": true
+                        }
+                    ],
                     "logs": {
                         "logger_names": {
                             "*": "access"
@@ -548,7 +578,7 @@ create_initial_config() {
             "automation": {
                 "policies": [
                     {
-                        "subjects": ["*.docker.local"],
+                        "subjects": ["*.docker.local", "localhost"],
                         "issuers": [
                             {
                                 "module": "internal",
@@ -596,17 +626,16 @@ update_caddy_json_config() {
     # Update the JSON configuration based on action
     if [ "$action" == "start" ]; then
         # Check if the domain already exists in the routes
-        local domain_exists=$(jq '.apps.http.servers.srv0.routes[] | select(.match[].host[] == "'$domain'") | length > 0' <<< "$current_config" | grep -c "true")
+        local domain_exists=$(jq '.apps.http.servers.srv0.routes[] | select(.match[].host[]? == "'$domain'") | length > 0' <<< "$current_config" | grep -c "true")
 
         if [ "$domain_exists" -eq "0" ]; then
             # Add configuration for new domain
             cPrint info "Adding the domain $domain to Caddy HTTP configuration..."
             local new_config=$(jq '.apps.http.servers.srv0.routes += [{"match": [{"host": ["'$domain'"]}],"handle": [{"handler": "reverse_proxy","upstreams": [{"dial": "'$container_name':'$container_port'"}]}],"terminal": true}]' <<< "$current_config")
 
-            # Check if we need to add TLS policy (only if not already covered by wildcard)
+            # Check if we need to add TLS policy (only if not already covered by wildcard or localhost)
             local is_docker_local=$(echo "$domain" | grep -c "\.docker\.local$")
-            if [ "$is_docker_local" -eq "0" ]; then
-                # Only add explicit TLS policy if not covered by the wildcard *.docker.local
+            if [ "$is_docker_local" -eq "0" ] && [ "$domain" != "localhost" ]; then
                 local tls_exists=$(jq '.apps.tls.automation.policies[] | select(.subjects[] == "'$domain'") | length > 0' <<< "$new_config" | grep -c "true")
                 if [ "$tls_exists" -eq "0" ]; then
                     cPrint info "Adding TLS policy for $domain..."
@@ -614,53 +643,34 @@ update_caddy_json_config() {
                 fi
             fi
 
-            # Validate and write the updated configuration
             if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
-                # Check if DEBUG environment variable is set and equals 1
                 if [ "${DEBUG}" == "1" ]; then
-                    echo $new_config
+                    echo "$new_config" | jq .
                 fi
-
-                # Reload Caddy to apply changes
                 cPrint info "Reloading Caddy"
                 reload_caddy "$CADDY_CONFIG_JSON"
-
-                # Ensure error handlers are configured
                 ensure_error_handlers
-
-                # Update the domain mappings
                 list_domain_mappings
             fi
         else
             cPrint info "Domain $domain already exists in configuration"
         fi
     elif [ "$action" == "die" ]; then
-        # Remove configuration for the domain
         cPrint info "Removing the domain $domain from Caddy configuration..."
-        local new_config=$(jq 'del(.apps.http.servers.srv0.routes[] | select(.match[].host[] == "'$domain'"))' <<< "$current_config")
+        local new_config=$(jq 'del(.apps.http.servers.srv0.routes[] | select(.match[].host[]? == "'$domain'"))' <<< "$current_config")
 
-        # Check if this domain has a specific TLS policy (not covered by wildcard)
         local is_docker_local=$(echo "$domain" | grep -c "\.docker\.local$")
-        if [ "$is_docker_local" -eq "0" ]; then
-            # Only remove explicit TLS policy if not covered by the wildcard *.docker.local
+        if [ "$is_docker_local" -eq "0" ] && [ "$domain" != "localhost" ]; then
             new_config=$(jq 'del(.apps.tls.automation.policies[] | select(.subjects[] == "'$domain'"))' <<< "$new_config")
         fi
 
-        # Validate and write the updated configuration
         if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
-            # Check if DEBUG environment variable is set and equals 1
             if [ "${DEBUG}" == "1" ]; then
-                echo $new_config
+                echo "$new_config" | jq .
             fi
-
-            # Reload Caddy to apply changes
             cPrint info "Reloading Caddy"
             reload_caddy "$CADDY_CONFIG_JSON"
-
-            # Ensure error handlers are configured
             ensure_error_handlers
-
-            # Update the domain mappings
             list_domain_mappings
         fi
     fi
@@ -670,7 +680,6 @@ update_caddy_json_config() {
 configure_host_routes() {
     cPrint info "Configuring host routes from $HOST_ROUTES_CONF"
 
-    # Create the host routes file if it doesn't exist
     if [ ! -f "$HOST_ROUTES_CONF" ]; then
         cPrint info "Creating initial host routes configuration file"
         echo "# DomainPilot Host Routes Configuration
@@ -679,94 +688,102 @@ configure_host_routes() {
 # Examples:
 # local-api.docker.local 3000
 # my-frontend.docker.local 8080
-# websocket-service.docker.local 9000" > $HOST_ROUTES_CONF
+# websocket-service.docker.local 9000" > "$HOST_ROUTES_CONF"
     fi
 
-    # Read current configuration
-    local current_config=$(cat $CADDY_CONFIG_JSON)
+    local base_config
+    base_config=$(cat "$CADDY_CONFIG_JSON") # Load current full config
 
-    # Clear the host routes tracker file
-    > $HOST_ROUTES_TRACKER
+    > "$HOST_ROUTES_TRACKER" # Clear tracker
 
-    # First, remove all host routes by recreating a configuration without them
-    cPrint info "Removing existing host routes..."
+    cPrint info "Rebuilding routes configuration including host routes..."
 
-    # Create a new base configuration with empty routes array
-    local new_config=$(jq '.apps.http.servers.srv0.routes = []' <<< "$current_config")
+    # Define the healthcheck route JSON (must be the first route)
+    local healthcheck_route_json='{
+        "match": [{"path": ["/_healthz"]}],
+        "handle": [{
+            "handler": "static_response",
+            "status_code": 200,
+            "body": "OK"
+        }],
+        "terminal": true
+    }'
 
-    # Get all non-host routes first (container routes)
-    local container_routes=$(jq -c '.apps.http.servers.srv0.routes[] | select(.handle[].handler == "reverse_proxy" and (.handle[].upstreams[].dial | test("host.docker.internal") | not))' <<< "$current_config")
+    # Initialize combined_routes_array with the healthcheck route
+    local combined_routes_array
+    combined_routes_array=$(jq -n --argjson hr "$healthcheck_route_json" '[$hr]')
 
-    # If we have container routes, add them back
-    if [ -n "$container_routes" ]; then
-        # First check if we have multiple routes by counting newlines
-        local route_count=$(echo "$container_routes" | wc -l)
+    # Get existing container routes (non-host.docker.internal, not healthcheck) from base_config
+    # Ensure it defaults to an empty JSON array string "[]" if no such routes exist or path is missing
+    local container_routes_array
+    container_routes_array=$(jq '[.apps.http.servers.srv0.routes[]? | select(
+        (.match[0].path[0]? != "/_healthz") and
+        (.handle[].handler == "reverse_proxy") and
+        (.handle[].upstreams[].dial | test("host.docker.internal") | not)
+    )] // []' <<< "$base_config")
 
-        if [ "$route_count" -gt 1 ]; then
-            # Multiple routes - we need to format them as an array
-            local container_routes_array="["
-            while IFS= read -r route; do
-                container_routes_array+="$route,"
-            done <<< "$container_routes"
-            # Remove the trailing comma and close the array
-            container_routes_array="${container_routes_array%,}]"
 
-            # Add the routes back to the config
-            new_config=$(jq --argjson routes "$container_routes_array" '.apps.http.servers.srv0.routes = $routes' <<< "$new_config")
-        elif [ "$route_count" -eq 1 ]; then
-            # Single route - add it as a single-element array
-            new_config=$(jq --argjson route "$container_routes" '.apps.http.servers.srv0.routes = [$route]' <<< "$new_config")
-        fi
-        # If route_count is 0, we already have an empty routes array
+    # Add container routes if they exist (i.e., if container_routes_array is not "[]")
+    if [[ "$container_routes_array" != "[]" ]]; then
+        combined_routes_array=$(jq -n --argjson r1 "$combined_routes_array" --argjson r2 "$container_routes_array" '$r1 + $r2')
     fi
 
-    # Now add new host routes from the configuration file
-    while read -r line || [ -n "$line" ]; do
-        # Skip comments and empty lines
+    # Process host routes from the configuration file
+    local host_routes_from_file_array="[]" # Initialize as empty JSON array string
+    local config_for_tls_updates="$base_config" # Use a copy of base_config for accumulating TLS policy changes
+
+    while IFS= read -r line || [ -n "$line" ]; do
         if [[ "$line" =~ ^#.*$ ]] || [[ -z "${line// }" ]]; then
             continue
         fi
-
-        # Extract domain and port
         read -r domain port <<< "$line"
-
         if [ -n "$domain" ] && [ -n "$port" ]; then
             cPrint info "Adding host route: $domain -> host.docker.internal:$port"
+            echo "$domain" >> "$HOST_ROUTES_TRACKER"
 
-            # Add the domain to the tracker file for future cleanup
-            echo "$domain" >> $HOST_ROUTES_TRACKER
+            local host_route_entry
+            host_route_entry=$(jq -n --arg d "$domain" --arg p "$port" \
+                '{match: [{"host": [$d]}], handle: [{"handler": "reverse_proxy", "upstreams": [{"dial": ("host.docker.internal:" + $p)}]}], terminal: true}')
 
-            # Add the host route to the configuration
-            new_config=$(jq '.apps.http.servers.srv0.routes += [{"match": [{"host": ["'$domain'"]}],"handle": [{"handler": "reverse_proxy","upstreams": [{"dial": "host.docker.internal:'$port'"}]}],"terminal": true}]' <<< "$new_config")
+            host_routes_from_file_array=$(jq -n --argjson arr "$host_routes_from_file_array" --argjson entry "$host_route_entry" '$arr + [$entry]')
 
-            # Check if we need to add TLS policy (only if not already covered by wildcard)
+            # Handle TLS policy for this host route domain
             local is_docker_local=$(echo "$domain" | grep -c "\.docker\.local$")
-            if [ "$is_docker_local" -eq "0" ]; then
-                # Only add explicit TLS policy if not covered by the wildcard *.docker.local
-                local tls_exists=$(jq '.apps.tls.automation.policies[] | select(.subjects[] == "'$domain'") | length > 0' <<< "$new_config" | grep -c "true")
-                if [ "$tls_exists" -eq "0" ]; then
-                    cPrint info "Adding TLS policy for $domain..."
-                    new_config=$(jq '.apps.tls.automation.policies += [{"subjects": ["'$domain'"],"issuers": [{"module": "internal", "lifetime": "87600h"}]}]' <<< "$new_config")
+            if [ "$is_docker_local" -eq "0" ] && [ "$domain" != "localhost" ]; then
+                # Check if TLS policy already exists in config_for_tls_updates
+                if ! jq -e --arg d "$domain" '.apps.tls.automation.policies[]? | select(.subjects[]? == $d) | length > 0' <<< "$config_for_tls_updates" > /dev/null 2>&1; then
+                    cPrint info "Adding TLS policy for host route $domain..."
+                    config_for_tls_updates=$(jq --arg d "$domain" '.apps.tls.automation.policies += [{"subjects": [$d],"issuers": [{"module": "internal", "lifetime": "87600h"}]}]' <<< "$config_for_tls_updates")
                 fi
             fi
         fi
     done < "$HOST_ROUTES_CONF"
 
-    # Validate and write the updated configuration
-    if validate_and_write_config "$new_config" "$CADDY_CONFIG_JSON"; then
-        # Reload Caddy to apply changes
-        cPrint info "Reloading Caddy with host routes"
+    # Add the collected host routes from file if any exist
+    if [[ "$host_routes_from_file_array" != "[]" ]]; then
+        combined_routes_array=$(jq -n --argjson r1 "$combined_routes_array" --argjson r2 "$host_routes_from_file_array" '$r1 + $r2')
+    fi
+
+    # Create the new full configuration:
+    # Start with config_for_tls_updates (which has accumulated TLS changes)
+    # Then, replace its routes array with the fully combined_routes_array
+    local new_full_config
+    new_full_config=$(jq --argjson routes "$combined_routes_array" \
+                         '.apps.http.servers.srv0.routes = $routes' <<< "$config_for_tls_updates")
+
+    if validate_and_write_config "$new_full_config" "$CADDY_CONFIG_JSON"; then
+        if [ "${DEBUG}" == "1" ]; then
+            echo "$new_full_config" | jq .
+        fi
+        cPrint info "Reloading Caddy with updated host routes"
         reload_caddy "$CADDY_CONFIG_JSON"
-
-        # Ensure error handlers are configured
         ensure_error_handlers
-
-        # Update the domain mappings
         list_domain_mappings
     else
         cPrint error "Failed to update host routes. Keeping previous configuration."
     fi
 }
+
 
 # Function to scan for existing containers
 scan_existing_containers() {
@@ -787,7 +804,7 @@ scan_existing_containers() {
 # Function to watch for changes in the host-routes.conf file
 watch_host_routes() {
     while true; do
-        inotifywait -e modify,create,delete,move "$HOST_ROUTES_CONF" 2>/dev/null || sleep 5
+        inotifywait -q -e modify,create,delete,move "$HOST_ROUTES_CONF" 2>/dev/null || sleep 5
         cPrint info "Host routes file changed, reconfiguring..."
         configure_host_routes
     done
@@ -810,7 +827,6 @@ tail_access_log() {
 
 # Check for list domains command
 if [ "$1" == "list" ]; then
-    # If Caddy config exists, list domains
     if [ -f "$CADDY_CONFIG_JSON" ]; then
         list_domain_mappings
     else
@@ -834,14 +850,14 @@ fi
 # Check for fix command to manually fix error handlers
 if [ "$1" == "fix" ]; then
     setup_error_pages
-    fix_error_handlers
+    fix_error_handlers # This will also ensure initial config if needed
     exit 0
 fi
 
 # Setup error pages
 setup_error_pages
 
-# Ensure error handlers are configured
+# Ensure error handlers are configured (this will call create_initial_config if needed)
 ensure_error_handlers
 
 # Start Caddy with the initial configuration and wait for it to be ready
@@ -853,10 +869,10 @@ echo -e "${cl_cyan}By Phillarmonic Software <https://github.com/phillarmonic>${c
 cPrint info "Make sure to add the env var ${cl_info}'DOMAINPILOT_VHOST'${cl_reset} to your containers with the domain name you want to use."
 cPrint info "You can set ${cl_info}'DOMAINPILOT_CONTAINER_PORT'${cl_reset} to specify a non-default port (default is 80)."
 cPrint info "Make sure to add the network ${cl_info}'domainpilot-proxy'${cl_reset} (as external) for the containers you want to use with DomainPilot."
-cPrint info "To route localhost ports, edit ${cl_info}'/opt/host-routes.conf'${cl_reset} with format: 'domain port'"
+cPrint info "To route localhost ports, edit ${cl_info}'./host-routes.conf'${cl_reset} (inside container: /opt/host-routes.conf) with format: 'domain port'"
 cPrint info "To list all domain mappings, run: ${cl_info}'docker exec -it caddy-proxy domainpilot list'${cl_reset}"
 cPrint info "To view access logs, run: ${cl_info}'docker exec -it caddy-proxy domainpilot logs'${cl_reset} or check ${cl_info}'./caddy_data/access.log'${cl_reset}"
-cPrint info "Custom error pages are located at: ${cl_info}'./caddy_config/error_pages/'${cl_reset}"
+cPrint info "Custom error pages are located at: ${cl_info}'./caddy_config/error_pages/'${cl_reset}" # This path is relative to docker-compose
 cPrint info "If error pages are not working, run: ${cl_info}'docker exec -it caddy-proxy domainpilot fix'${cl_reset}"
 
 # Configure host routes initially
@@ -873,7 +889,10 @@ cPrint status "Listening to Docker container events..."
 docker events --filter 'event=start' --filter 'event=die' --format '{{json .}}' | while read event; do
     container_name=$(echo $event | jq -r '.Actor.Attributes.name')
     event_status=$(echo $event | jq -r '.status')
-    if [ "$event_status" == "start" ] || [ "$event_status" == "die" ]; then
-        update_caddy_json_config $container_name $event_status
+    # Ensure we have a container name and it's not the proxy itself
+    if [ -n "$container_name" ] && [[ "$container_name" != *"caddy-proxy"* ]]; then
+        if [ "$event_status" == "start" ] || [ "$event_status" == "die" ]; then
+            update_caddy_json_config "$container_name" "$event_status"
+        fi
     fi
 done
