@@ -307,7 +307,7 @@ create_initial_config() {
         "admin": {"listen": "localhost:2019"},
         "logging": {
             "logs": {
-                "default": {"level": "DEBUG"},
+                "default": {"level": "WARN"},
                 "access": {
                     "level": "INFO",
                     "writer": {"output": "file", "filename": "'"${ACCESS_LOG_FILE}"'"},
