@@ -6,3 +6,4 @@ caddy_config/*
 .env
 docker-compose.override.yml
 host-routes.conf
+bundle

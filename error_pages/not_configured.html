@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Domain Not Configured | DomainPilot</title>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2980b9;
+            --danger-color: #e74c3c; /* For warnings/errors */
+            --text-color: #333;
+            --light-bg: #f5f8fa;
+            --border-color: #e1e4e8;
+            --shadow-color: rgba(0, 0, 0, 0.1);
+            --code-bg: #f6f8fa;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--light-bg);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        header {
+            background-color: white;
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 0;
+            text-align: center;
+            box-shadow: 0 2px 4px var(--shadow-color);
+        }
+
+        .logo {
+            font-size: 1.6rem;
+            font-weight: bold;
+            color: var(--primary-color);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo svg {
+            margin-right: 0.5rem;
+        }
+
+        .error-main-container { /* Renamed from error-container for clarity */
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px var(--shadow-color);
+            padding: 2rem;
+            margin: 2rem 0;
+            text-align: center;
+        }
+
+        .error-code-display { /* Renamed from error-code */
+            font-size: 5rem; /* Adjusted size for an icon */
+            font-weight: bold;
+            color: var(--primary-color); /* Default color */
+            margin: 0;
+            line-height: 1;
+        }
+        .error-code-display.warning { /* Specific class for warning icon */
+             color: var(--danger-color); /* Orange/Red for warning */
+        }
+
+
+        .error-title {
+            font-size: 1.8rem;
+            margin: 1rem 0;
+            color: var(--text-color);
+        }
+
+        .error-message {
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+            color: #666;
+        }
+         .error-message code {
+            background-color: var(--code-bg);
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: monospace;
+            color: #c7254e; /* A common color for code in error messages */
+            border: 1px solid var(--border-color);
+        }
+
+        .help-section {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px var(--shadow-color);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            text-align: left;
+        }
+
+        .help-section h2 {
+            color: var(--primary-color);
+            margin-top: 0;
+            font-size: 1.4rem;
+        }
+        .help-section p {
+            margin-bottom: 0.8rem;
+        }
+        .help-section ul {
+            list-style-type: none;
+            padding-left: 0;
+            margin-top: 0.5rem;
+        }
+        .help-section ul li {
+            margin-bottom: 1rem;
+            padding-left: 25px;
+            position: relative;
+        }
+        .help-section ul li::before {
+            content: "👉";
+            position: absolute;
+            left: 0;
+            color: var(--primary-color);
+            font-size: 0.9em;
+            top: 2px;
+        }
+        .help-section ul ul {
+            margin-top: 0.5rem;
+            padding-left: 20px;
+        }
+        .help-section ul ul li {
+            margin-bottom: 0.5rem;
+        }
+        .help-section ul ul li::before {
+            content: "➡️";
+        }
+         .help-section code { /* For inline code in help text */
+            background-color: var(--code-bg);
+            padding: 0.1em 0.3em;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.95em;
+            border: 1px solid var(--border-color);
+        }
+
+
+        .code-block {
+            background-color: var(--code-bg);
+            border-radius: 4px;
+            padding: 1rem;
+            font-family: monospace;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            margin-top: 0.5em;
+            font-size: 0.9em;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.6rem 1.2rem;
+            background-color: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: var(--secondary-color);
+        }
+
+        footer {
+            background-color: white;
+            border-top: 1px solid var(--border-color);
+            padding: 1rem 0;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        footer a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 600px) {
+            .error-code-display {
+                font-size: 3.5rem;
+            }
+            .error-title {
+                font-size: 1.5rem;
+            }
+            .container {
+                padding: 1rem;
+            }
+            .error-main-container, .help-section {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/png" sizes="192x192"
+          href="https://raw.githubusercontent.com/Phillarmonic/domainpilot/ab1611b5fb1c38d14c1b3127f6852edde7c8610a/assets/favicon/android-chrome-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512"
+          href="https://raw.githubusercontent.com/Phillarmonic/domainpilot/ab1611b5fb1c38d14c1b3127f6852edde7c8610a/assets/favicon/android-chrome-512x512.png">
+    <link rel="apple-touch-icon"
+          href="https://raw.githubusercontent.com/Phillarmonic/domainpilot/ab1611b5fb1c38d14c1b3127f6852edde7c8610a/assets/favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="16x16"
+          href="https://raw.githubusercontent.com/Phillarmonic/domainpilot/ab1611b5fb1c38d14c1b3127f6852edde7c8610a/assets/favicon/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32"
+          href="https://raw.githubusercontent.com/Phillarmonic/domainpilot/ab1611b5fb1c38d14c1b3127f6852edde7c8610a/assets/favicon/favicon-32x32.png">
+    <link rel="icon"
+          href="https://raw.githubusercontent.com/Phillarmonic/domainpilot/ab1611b5fb1c38d14c1b3127f6852edde7c8610a/assets/favicon/favicon.ico">
+    <link rel="manifest"
+          href="https://raw.githubusercontent.com/Phillarmonic/domainpilot/ab1611b5fb1c38d14c1b3127f6852edde7c8610a/assets/favicon/site.webmanifest">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <a href="#" class="logo" onclick="event.preventDefault(); alert('This is a DomainPilot service page. There is no general home page for the proxy itself.');">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#3498db" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 17L12 22L22 17" stroke="#3498db" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 12L12 17L22 12" stroke="#3498db" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                DomainPilot
+            </a>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="error-main-container">
+            <h1 class="error-code-display warning">⚠️</h1>
+            <h2 class="error-title">Domain Not Configured</h2>
+            <p class="error-message">The domain <code><script>document.write(window.location.hostname);</script></code> is not currently configured in DomainPilot.</p>
+        </div>
+
+        <div class="help-section">
+            <h2>Troubleshooting Tips</h2>
+            <p>If you expected this domain to work, please check the following:</p>
+            <ul>
+                <li>
+                    <strong>For Docker Containers:</strong>
+                    <ul>
+                        <li>Ensure the container is <strong>running</strong>.</li>
+                        <li>Verify the <code>DOMAINPILOT_VHOST</code> environment variable is correctly set for the container (e.g., <code>DOMAINPILOT_VHOST=<script>document.write(window.location.hostname);</script></code>).</li>
+                        <li>Confirm the container is connected to the <code>domainpilot-proxy</code> network.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>For Local Host Services:</strong>
+                    <ul>
+                        <li>Ensure the entry is correctly added to the <code>host-routes.conf</code> file (format: <code>domain.docker.local port</code>). For example: <code><script>document.write(window.location.hostname);</script> 3000</code>.</li>
+                        <li>Verify the local service is <strong>running</strong> on the specified port.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>System Configuration:</strong>
+                    <ul>
+                        <li>Ensure the domain (e.g., <code><script>document.write(window.location.hostname);</script></code>) is added to your system's <code>/etc/hosts</code> file (or equivalent for your OS), pointing to <code>127.0.0.1</code>.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>DomainPilot Status:</strong>
+                    <ul>
+                        <li>You can list currently active DomainPilot mappings using the command:
+                            <div class="code-block">docker exec -it caddy-proxy domainpilot list</div>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <footer>
+        <div class="container">
+            <p>Powered by <a href="https://github.com/Phillarmonic/domainpilot" target="_blank">DomainPilot</a> • Local HTTPS Reverse Proxy</p>
+        </div>
+    </footer>
+</body>
+</html>
