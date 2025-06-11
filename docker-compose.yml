@@ -21,6 +21,14 @@ services:
     networks:
         - domainpilot-proxy
     restart: unless-stopped
+    healthcheck:
+          test: ["CMD", "curl", "-fks", "https://localhost/_healthz"]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+          start_period: 20s # Give Caddy time to initialize and generate certs
+    tty: true
+    stdin_open: true
 
 networks:
   domainpilot-proxy:

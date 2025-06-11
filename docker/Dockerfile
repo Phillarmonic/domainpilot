@@ -12,6 +12,8 @@ LABEL org.opencontainers.image.authors='Monkey Jobs Phillarmonkey <phillarmonics
 # Added inotify-tools for watching file changes
 RUN apk add --no-cache docker-cli jq figlet bash nss nss-tools nano curl wget inotify-tools iputils
 
+ADD ./error_pages /opt/error_pages
+
 # Add your custom script to the container
 ADD docker/caddy-json-config.sh /usr/local/bin/domainpilot
 RUN chmod +x /usr/local/bin/domainpilot
