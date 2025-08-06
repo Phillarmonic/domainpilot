@@ -228,8 +228,21 @@ ensure_error_handlers() {
         cPrint info "Error handling configuration missing. Adding it..."
         local new_config=$(jq '.apps.http.servers.srv0.errors = {
             "routes": [
-                {"handle": [{"handler": "rewrite", "uri": "/{http.error.status_code}.html"}]},
-                {"handle": [{"handler": "file_server", "root": "'"$ERROR_PAGES_DIR"'", "index_names": []}]}
+                {
+                    "match": [{"header": {"Accept": ["*application/json*"]}}],
+                    "handle": [{
+                        "handler": "static_response",
+                        "status_code": "{http.error.status_code}",
+                        "headers": {"Content-Type": ["application/json"]},
+                        "body": "{\"error\":{\"status\":{http.error.status_code},\"message\":\"The address you are trying to reach is not configured in DomainPilot. Please check your domain configuration or contact your administrator.\",\"domain\":\"{http.request.host}\",\"timestamp\":\"{time.now.unix}\",\"service\":\"DomainPilot Reverse Proxy\"}}"
+                    }]
+                },
+                {
+                    "handle": [{"handler": "rewrite", "uri": "/{http.error.status_code}.html"}]
+                },
+                {
+                    "handle": [{"handler": "file_server", "root": "'"$ERROR_PAGES_DIR"'", "index_names": []}]
+                }
             ]
         }' <<< "$current_config")
 
@@ -270,8 +283,21 @@ fix_error_handlers() {
     fi
     local current_config=$(cat "$CADDY_CONFIG_JSON")
     local error_routes_json='[
-        {"handle": [{"handler": "rewrite", "uri": "/{http.error.status_code}.html"}]},
-        {"handle": [{"handler": "file_server", "root": "'"$ERROR_PAGES_DIR"'", "index_names": []}]}
+        {
+            "match": [{"header": {"Accept": ["*application/json*"]}}],
+            "handle": [{
+                "handler": "static_response",
+                "status_code": "{http.error.status_code}",
+                "headers": {"Content-Type": ["application/json"]},
+                "body": "{\"error\":{\"status\":{http.error.status_code},\"message\":\"The address you are trying to reach is not configured in DomainPilot. Please check your domain configuration or contact your administrator.\",\"domain\":\"{http.request.host}\",\"timestamp\":\"{time.now.unix}\",\"service\":\"DomainPilot Reverse Proxy\"}}"
+            }]
+        },
+        {
+            "handle": [{"handler": "rewrite", "uri": "/{http.error.status_code}.html"}]
+        },
+        {
+            "handle": [{"handler": "file_server", "root": "'"$ERROR_PAGES_DIR"'", "index_names": []}]
+        }
     ]'
     local new_config=$(jq --argjson er "$error_routes_json" '.apps.http.servers.srv0.errors.routes = $er' <<< "$current_config")
 
@@ -324,8 +350,21 @@ create_initial_config() {
                         "logs": {"logger_names": {"*": "access"}},
                         "errors": {
                             "routes": [
-                                {"handle": [{"handler": "rewrite", "uri": "/{http.error.status_code}.html"}]},
-                                {"handle": [{"handler": "file_server", "root": "'"$ERROR_PAGES_DIR"'", "index_names": []}]}
+                                {
+                                    "match": [{"header": {"Accept": ["*application/json*"]}}],
+                                    "handle": [{
+                                        "handler": "static_response",
+                                        "status_code": "{http.error.status_code}",
+                                        "headers": {"Content-Type": ["application/json"]},
+                                        "body": "{\"error\":{\"status\":{http.error.status_code},\"message\":\"The address you are trying to reach is not configured in DomainPilot. Please check your domain configuration or contact your administrator.\",\"domain\":\"{http.request.host}\",\"timestamp\":\"{time.now.unix}\",\"service\":\"DomainPilot Reverse Proxy\"}}"
+                                    }]
+                                },
+                                {
+                                    "handle": [{"handler": "rewrite", "uri": "/{http.error.status_code}.html"}]
+                                },
+                                {
+                                    "handle": [{"handler": "file_server", "root": "'"$ERROR_PAGES_DIR"'", "index_names": []}]
+                                }
                             ]
                         }
                     }
