@@ -143,7 +143,7 @@ DomainPilot includes several helpful utility scripts:
 
 **caddy_config**: Directory for Caddy configuration
 
-**caddy_data**: Directory for Caddy data
+**caddy_data**: Directory for Caddy data (including SSL certificates)
 
 **docker**/: Contains the source Dockerfile and helper scripts (for building purposes)
 
